@@ -1,4 +1,5 @@
 import { PDate, PUtils } from 'pols-utils'
+import { URecord } from 'pols-utils/dist/types'
 
 const mssql = (() => {
 	try {
@@ -351,66 +352,15 @@ export class PDBDriver {
 					// 	}
 					// })
 					break
-				case PDriverNames.hana:
-					// this._connection.exec(command, (err: any, rows0: any, rows1: any) => {
-					// 	if (err) {
-					// 		reject(err)
-					// 	} else {
-					// 		rows0 = rows0 instanceof Array ? rows0 : rows1
-					// 		if (rows0 instanceof Array) {
-					// 			for (const row of rows0) {
-					// 				for (const fieldName in row) {
-					// 					if (row[fieldName] && typeof row[fieldName] == 'object') {
-					// 						row[fieldName] = row[fieldName].toString()
-					// 					}
-					// 				}
-					// 			}
-					// 		}
-					// 		resolve(rows0)
-					// 	}
-					// })
-					break
 				case PDriverNames.sqlsrv:
 				case PDriverNames.sqlsrv2008: {
-					let request
+					let request: any
 					if (this._inTransaction) {
 						request = this.transactionInstance.request()
 					} else {
 						request = this.engine.request()
 					}
-					// results = (await request.query(/*sql*/`${ignoreDateFormat ? '' : `set dateformat dmy;`} ${command}`)).recordset
 					results = (await request.query(/*sql*/`${command}`)).recordset
-					/* Modifica las fechas debido a que el driver las convierte a la zona horaria don se ejecuta la aplicación, lo que puede causar un error al realizar cálculos con las fechas */
-					// if (results?.length) {
-					// 	
-					// 	const anyResults = results as any
-					// 	const dateColumns: string[] = []
-					// 	const dateTimeColumns: string[] = []
-					// 	for (const fieldName in anyResults.columns) {
-					// 		switch (anyResults.columns[fieldName].type.name) {
-					// 			case 'Date':
-					// 				dateColumns.push(fieldName)
-					// 				break
-					// 			case 'DateTime':
-					// 				dateTimeColumns.push(fieldName)
-					// 				break
-					// 		}
-					// 	}
-					// 	if (dateColumns.length || dateTimeColumns.length) {
-					// 		for (const r of results) {
-					// 			if (dateColumns.length) {
-					// 				for (const fieldName of dateColumns) {
-					// 					if (r[fieldName]) r[fieldName] = new Date((r[fieldName] as Date).toISOString().replace(/t|z/gi, ' '))
-					// 				}
-					// 			}
-					// 			if (dateTimeColumns.length) {
-					// 				for (const fieldName of dateTimeColumns) {
-					// 					if (r[fieldName]) r[fieldName] = new Date((r[fieldName] as Date).toISOString().replace(/t|z/gi, ' '))
-					// 				}
-					// 			}
-					// 		}
-					// 	}
-					// }
 					break
 				}
 				case PDriverNames.mariadb:
@@ -607,7 +557,6 @@ export class PDBDriver {
 
 			limitString = (() => {
 				switch (this.config.driver) {
-					case PDriverNames.hana:
 					case PDriverNames.postgresql:
 					case PDriverNames.mariadb:
 						return `${limit.count} OFFSET ${limit.offset}`
@@ -746,9 +695,6 @@ export class PDBDriver {
 
 		let getIDStatement: string
 		switch (this.config.driver) {
-			case PDriverNames.hana:
-				getIDStatement = /*sql*/`select current_identity_value() as 'lastID' from dummy`
-				break
 			case PDriverNames.sqlsrv2008:
 			case PDriverNames.sqlsrv:
 				getIDStatement = /*sql*/`select @@identity as 'lastID'`
