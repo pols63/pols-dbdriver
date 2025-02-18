@@ -81,6 +81,7 @@ export type PQueryResults<T = PTableRow> = {
 	readonly rows: T[]
 	readonly rowsCount: number
 	readonly statement: string
+	readonly structure: Record<string, { length: number }>
 	readonly lastID?: number
 }
 
@@ -360,7 +361,8 @@ export class PDBDriver {
 					} else {
 						request = this.engine.request()
 					}
-					results = (await request.query(/*sql*/`${command}`)).recordset
+					const execute = await request.query(/*sql*/`${command}`)
+					results = execute.recordset
 					break
 				}
 				case PDriverNames.mariadb:
@@ -411,6 +413,7 @@ export class PDBDriver {
 		return {
 			rows: results ?? [],
 			rowsCount: results?.length ?? 0,
+			structure: (results as any)?.columns,
 			statement: command
 		}
 	}
@@ -647,12 +650,14 @@ export class PDBDriver {
 			if (!count) return {
 				rows: [],
 				rowsCount: 0,
+				structure: {},
 				statement: command
 			}
 			const result = await this.query<T>(command, groupColumns)
 			return {
 				rows: result.rows,
 				rowsCount: count,
+				structure: result.structure,
 				statement: command
 			}
 		}
@@ -720,6 +725,7 @@ export class PDBDriver {
 			rows: [],
 			rowsCount: 0,
 			statement: commands.join('\n'),
+			structure: {},
 			lastID
 		}
 	}
