@@ -1,5 +1,6 @@
-import { PDate, PUtils } from 'pols-utils'
-import { URecord } from 'pols-utils/dist/types'
+import { PDate } from 'pols-date'
+import { PUtils } from 'pols-utils'
+import { PRecord } from 'pols-utils/constants'
 
 const mssql = (() => {
 	try {
@@ -407,7 +408,7 @@ export class PDBDriver {
 				const keys = Object.keys(row)
 				for (const key of keys) {
 					if (key.match(/\./)) {
-						PUtils.Object.setValue(row as URecord, key, row[key])
+						PUtils.Object.setValue(row as PRecord, key, row[key])
 						delete row[key]
 					}
 				}

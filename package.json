@@ -25,6 +25,7 @@
 		"typescript-eslint": "^8.11.0"
 	},
 	"dependencies": {
-		"pols-utils": "^1.6.5"
+		"pols-date": "^1.0.1",
+		"pols-utils": "^4.1.0"
 	}
 }
