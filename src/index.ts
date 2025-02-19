@@ -310,7 +310,7 @@ export class PDBDriver {
 		this._connected = false
 	}
 
-	escape(value?: number | string | boolean | Date | PDate | { expression: string } | null | unknown, fullDate = true): string {
+	escape(value?: number | string | boolean | Date | { engine?: unknown } | { expression: string } | null | unknown, fullDate = true): string {
 		const typeOfValue = typeof value
 		if (value == null) {
 			return 'null'
@@ -330,11 +330,12 @@ export class PDBDriver {
 			} else {
 				return `'${PUtils.Date.format(value, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			}
-		} else if (value instanceof PDate) {
+		} else if (typeof value == 'object' && 'engine' in value && value.engine instanceof Date) {
+			/* Compatibilidad con PDate */
 			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return `'${value.toString(`@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtils.Date.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			} else {
-				return `'${value.toString(`@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtils.Date.format(value.engine, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			}
 		} else if (typeOfValue == 'object' && 'expression' in (value as object)) {
 			return (value as { expression: string }).expression
