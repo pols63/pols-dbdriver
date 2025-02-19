@@ -81,7 +81,10 @@ export type PQueryResults<T = PTableRow> = {
 	readonly rows: T[]
 	readonly rowsCount: number
 	readonly statement: string
-	readonly structure: Record<string, { length: number }>
+	readonly structure: Record<string, {
+		type: PFieldTypes
+		length: number
+	}>
 	readonly lastID?: number
 }
 
@@ -98,6 +101,7 @@ export type PBatchSaveParams = PSaveParams & { table: string }
 export enum PFieldTypes {
 	boolean = 'boolean',
 	varchar = 'varchar',
+	nvarchar = 'nvarchar',
 	date = 'date',
 	datetime = 'datetime',
 	smallint = 'smallint',
@@ -410,10 +414,20 @@ export class PDBDriver {
 			})
 		}
 
+		const structure: PQueryResults['structure'] = {}
+		const columns = (results as any)?.columns
+		for (const columnName in columns) {
+			const column = columns[columnName]
+			structure[columnName] = {
+				...column,
+				type: column.type.declaration
+			}
+		}
+
 		return {
 			rows: results ?? [],
 			rowsCount: results?.length ?? 0,
-			structure: (results as any)?.columns,
+			structure,
 			statement: command
 		}
 	}

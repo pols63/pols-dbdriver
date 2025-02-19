@@ -10,7 +10,8 @@ const run = async () => {
 	})
 	await db.connect()
 
-	const resultados = await db.query(`select top 5 ItemCode, ItemName from SBO_ROM_SAC..OITM`)
+	const resultados = await db.query(`select top 5 TransId, Memo from SBO_ROM_SAC..OJDT`)
+	console.log(resultados)
 }
 
 run().then(() => {
