@@ -1,6 +1,4 @@
-import { PDate } from 'pols-date'
-import { PUtils } from 'pols-utils'
-import { PRecord } from 'pols-utils/constants'
+import { PRecord, PUtilsArray, PUtilsDate, PUtilsNumber, PUtilsObject } from "pols-utils"
 
 const mssql = (() => {
 	try {
@@ -326,16 +324,16 @@ export class PDBDriver {
 			return `${value}`
 		} else if (value instanceof Date) {
 			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return `'${PUtils.Date.format(value, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtilsDate.format(value, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			} else {
-				return `'${PUtils.Date.format(value, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtilsDate.format(value, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			}
 		} else if (typeof value == 'object' && 'engine' in value && value.engine instanceof Date) {
 			/* Compatibilidad con PDate */
 			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return `'${PUtils.Date.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtilsDate.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			} else {
-				return `'${PUtils.Date.format(value.engine, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+				return `'${PUtilsDate.format(value.engine, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 			}
 		} else if (typeOfValue == 'object' && 'expression' in (value as object)) {
 			return (value as { expression: string }).expression
@@ -409,7 +407,7 @@ export class PDBDriver {
 				const keys = Object.keys(row)
 				for (const key of keys) {
 					if (key.match(/\./)) {
-						PUtils.Object.setValue(row as PRecord, key, row[key])
+						PUtilsObject.setValue(row as PRecord, key, row[key])
 						delete row[key]
 					}
 				}
@@ -637,7 +635,7 @@ export class PDBDriver {
 	}
 
 	async count(params: PSelectParams) {
-		return PUtils.Number.forceNumber((await this.queryOne(this.makeCountCommand(params)))?.Count)
+		return PUtilsNumber.parse((await this.queryOne(this.makeCountCommand(params)))?.Count)
 	}
 
 	async select<T = PTableRow>(params: PSelectParams, groupColumns?: boolean): Promise<PQueryResults<T>> {
@@ -653,7 +651,7 @@ export class PDBDriver {
 				page: undefined
 			})
 			const limitPage = Math.max(Math.ceil(count / this.config.rowsPerPage), 1)
-			let page = Math.floor(PUtils.Number.forceNumber(params.page))
+			let page = Math.floor(PUtilsNumber.parse(params.page))
 			if (page == 0) {
 				page = undefined
 			} else {
@@ -827,16 +825,16 @@ export class PDBDriver {
 			})()
 
 			/* Valida la propiedad length */
-			if (fieldDefinition.type == PFieldTypes.varchar && (!PUtils.Number.isInteger(fieldDefinition.length) || !PUtils.Number.isGreaterThan(fieldDefinition.length, 0))) {
+			if (fieldDefinition.type == PFieldTypes.varchar && (!PUtilsNumber.isInteger(fieldDefinition.length) || fieldDefinition.length <= 0)) {
 				throw new Error(`Para la definición del campo '${field}', la propiedad 'length' debe ser un número entero positivo mayor a cero`)
 			}
 
 			if (fieldDefinition.type == PFieldTypes.decimal || fieldDefinition.type == PFieldTypes.numeric) {
 				if (
-					!PUtils.Number.isInteger(fieldDefinition.length[0])
-					|| !PUtils.Number.isGreaterThan(fieldDefinition.length[0], 0)
-					|| !PUtils.Number.isInteger(fieldDefinition.length[1])
-					|| !PUtils.Number.isGreaterThan(fieldDefinition.length[1], 0)
+					!PUtilsNumber.isInteger(fieldDefinition.length[0])
+					|| fieldDefinition.length[0] <= 0
+					|| !PUtilsNumber.isInteger(fieldDefinition.length[1])
+					|| fieldDefinition.length[1] <= 0
 				) {
 					throw new Error(`Para la definición del campo '${field}', la propiedad 'length' debe ser un array de números enteros positivos`)
 				}
@@ -849,7 +847,7 @@ export class PDBDriver {
 					case PFieldTypes.smallint:
 					case PFieldTypes.bigint:
 					case PFieldTypes.int:
-						if (typeof fieldDefinition.default != 'number' || !PUtils.Number.isInteger(fieldDefinition.default)) throw new Error(errorMessageForType)
+						if (typeof fieldDefinition.default != 'number' || !PUtilsNumber.isInteger(fieldDefinition.default)) throw new Error(errorMessageForType)
 						break
 					case PFieldTypes.float:
 					case PFieldTypes.double:
@@ -869,10 +867,10 @@ export class PDBDriver {
 						switch (this.config.driver) {
 							case PDriverNames.sqlsrv2008:
 							case PDriverNames.sqlsrv:
-								fieldDefinition.default = PUtils.Date.format(fieldDefinition.default, `'@y@mm@dd @hh:@ii:@ss'`)
+								fieldDefinition.default = PUtilsDate.format(fieldDefinition.default, `'@y@mm@dd @hh:@ii:@ss'`)
 								break
 							default:
-								fieldDefinition.default = PUtils.Date.format(fieldDefinition.default, `'@y-@mm-@dd @hh:@ii:@ss'`)
+								fieldDefinition.default = PUtilsDate.format(fieldDefinition.default, `'@y-@mm-@dd @hh:@ii:@ss'`)
 								break
 						}
 						break
@@ -921,7 +919,7 @@ export class PDBDriver {
 				const fieldDefinition: PFieldDefinition = fields[field] as PFieldDefinition
 
 				/* Verifica si el campo ya existe */
-				const currentField = PUtils.Array.queryOne(currentFields.rows, (specification: PTableRow) => (specification.name as string).toLowerCase() == field.toLowerCase())
+				const currentField = PUtilsArray.filterOne(currentFields.rows, (specification: PTableRow) => (specification.name as string).toLowerCase() == field.toLowerCase())
 
 				if (!currentField) {
 					/* Si la columna no existe, intentará crearla */
@@ -1178,7 +1176,7 @@ export class PDBDriver {
 			if (fieldDefinition.foreignKey) {
 				/* Validación del foreignKey */
 				const foreignKey = fieldDefinition.foreignKey
-				const referentialConstraint = PUtils.Array.queryOne(referentialConstraints.rows, { table_name: table, column_name: field, reference_table: foreignKey.table, reference_column: foreignKey.field })
+				const referentialConstraint = PUtilsArray.filterOne(referentialConstraints.rows, { table_name: table, column_name: field, reference_table: foreignKey.table, reference_column: foreignKey.field })
 				/* Si se ha definido una llave foránea, se crea */
 				if (!referentialConstraint) {
 					try {
@@ -1194,7 +1192,7 @@ export class PDBDriver {
 				}
 			} else {
 				/* Si no se ha definido una llave foránea, se verifica si existe una que amarre al mismo campo con la misma tabla y se elimina */
-				const referentialConstraint = PUtils.Array.query(referentialConstraints.rows, { column_name: field, table_name: table })
+				const referentialConstraint = PUtilsArray.filter(referentialConstraints.rows, { column_name: field, table_name: table })
 				if (referentialConstraint) {
 					for (const rc of referentialConstraint) {
 						try {
