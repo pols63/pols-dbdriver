@@ -349,7 +349,7 @@ export class PDBDriver {
 		/* Cambia el valor de los parámetros utilizando la función "escape" */
 		if (parameters) {
 			for (const parameterName in parameters) {
-				command = command.replace(new RegExp(`\$${parameterName}`, 'g'), this.escape(parameters[parameterName]))
+				command = command.replace(new RegExp(`\\$${parameterName}`, 'g'), this.escape(parameters[parameterName]))
 			}
 		}
 

@@ -10,7 +10,9 @@ const run = async () => {
 	})
 	await db.connect()
 
-	const resultados = await db.query(`select top 5 TransId, Memo from SBO_ROM_SAC..OJDT`)
+	const resultados = await db.query(`select top 5 TransId, Memo from SBO_ROM_SAC..OJDT where RefDate = $refDate`, {
+		refDate: new Date('2025-07-21 00:00:00')
+	})
 	console.log(resultados)
 }
 
