@@ -73,7 +73,8 @@ export type PSelectParams = {
 	limit?: {
 		offset: number
 		count: number
-	}
+	},
+	groupColumns?: boolean
 }
 
 export type PQueryResults<T = PTableRow> = {
@@ -342,9 +343,16 @@ export class PDBDriver {
 		}
 	}
 
-	// private async run(command: string, resultsAreExpected = true, ignoreDateFormat = false) {
-	private async run<T = PTableRow>(command: string, resultsAreExpected = true) {
+	private async run<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, resultsAreExpected = true) {
 		if (!this._connected) throw new Error(`El driver no está conectado con el servidor`)
+
+		/* Cambia el valor de los parámetros utilizando la función "escape" */
+		if (parameters) {
+			for (const parameterName in parameters) {
+				command = command.replace(new RegExp(`\$${parameterName}`, 'g'), this.escape(parameters[parameterName]))
+			}
+		}
+
 		let results: T[] = null
 		try {
 			switch (this.config.driver) {
@@ -392,14 +400,12 @@ export class PDBDriver {
 		return results
 	}
 
-	// async exec(command: string, ignoreDateFormat = false) {
 	async exec(command: string) {
-		// await this.run(command, false, ignoreDateFormat)
-		await this.run(command, false)
+		await this.run(command, {}, false)
 	}
 
-	async query<T = PTableRow>(command: string, groupColumns?: boolean): Promise<PQueryResults<T>> {
-		const results = await this.run<T>(command, true)
+	async query<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, groupColumns?: boolean): Promise<PQueryResults<T>> {
+		const results = await this.run<T>(command, parameters, true)
 
 		/* Agrupación de columnas */
 		if (results?.length && groupColumns) {
@@ -432,8 +438,8 @@ export class PDBDriver {
 		}
 	}
 
-	async queryOne<T = PTableRow>(command: string, groupColumns?: boolean): Promise<T | null> {
-		return (await this.query<T>(command, groupColumns)).rows[0] ?? null
+	async queryOne<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, groupColumns?: boolean): Promise<T | null> {
+		return (await this.query<T>(command, parameters, groupColumns)).rows[0] ?? null
 	}
 
 	beginTransaction(): Promise<void> {
@@ -638,12 +644,12 @@ export class PDBDriver {
 		return PUtilsNumber.parse((await this.queryOne(this.makeCountCommand(params)))?.Count)
 	}
 
-	async select<T = PTableRow>(params: PSelectParams, groupColumns?: boolean): Promise<PQueryResults<T>> {
+	async select<T = PTableRow>(params: PSelectParams): Promise<PQueryResults<T>> {
 		if (!(params.page >= 1)) {
 			return await this.query<T>(this.makeSelectCommand({
 				...params,
 				page: undefined
-			}), groupColumns)
+			}), null, params.groupColumns)
 		} else {
 			const count = await this.count({
 				...params,
@@ -667,7 +673,7 @@ export class PDBDriver {
 				structure: {},
 				statement: command
 			}
-			const result = await this.query<T>(command, groupColumns)
+			const result = await this.query<T>(command, null, params.groupColumns)
 			return {
 				rows: result.rows,
 				rowsCount: count,
@@ -677,8 +683,8 @@ export class PDBDriver {
 		}
 	}
 
-	async selectOne<T = PTableRow>(params: PSelectParams, groupColumns?: boolean) {
-		return await this.queryOne<T>(this.makeSelectCommand(params), groupColumns)
+	async selectOne<T = PTableRow>(params: PSelectParams) {
+		return await this.queryOne<T>(this.makeSelectCommand(params),null, params.groupColumns)
 	}
 
 	async delete(table: string, where: string | string[]) {
