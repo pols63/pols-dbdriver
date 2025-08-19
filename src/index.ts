@@ -70,7 +70,7 @@ export type PSelectParams = {
 	page?: number
 	group?: string
 	order?: string
-	limit?: {
+	limit?: number | {
 		offset: number
 		count: number
 	},
@@ -571,24 +571,35 @@ export class PDBDriver {
 		}
 
 		/* LIMIT */
-		let limitString: string | undefined = undefined
+		let limitString: string
 		if (limit != null) {
-			if (limit.offset < 0) throw new Error(`La propiedad 'limit.offset' debe ser mayor a cero`)
-			if (Math.ceil(limit.offset) != limit.offset) throw new Error(`La propiedad 'limit.offset' debe ser un número entero`)
-			if (limit.count < 0) throw new Error(`La propiedad 'limit.count' debe ser mayor a cero`)
-			if (Math.ceil(limit.count) != limit.count) throw new Error(`La propiedad 'limit.count' debe ser un número entero`)
+			let count = 0
+			let offset = 0
 
-			limitString = (() => {
-				switch (this.config.driver) {
-					case PDriverNames.postgresql:
-					case PDriverNames.mariadb:
-						return `${limit.count} OFFSET ${limit.offset}`
-					case PDriverNames.sqlsrv:
-						return `OFFSET ${limit.offset} ROWS FETCH NEXT ${limit.count} ROWS ONLY`
-					case PDriverNames.sqlsrv2008:
-						return `${limit.offset} AND ${limit.offset + limit.count}`
-				}
-			})()
+			if (typeof limit == 'number') {
+				count = limit
+			} else {
+				if (limit.offset < 0) throw new Error(`La propiedad 'limit.offset' debe ser mayor a cero`)
+				if (Math.ceil(limit.offset) != limit.offset) throw new Error(`La propiedad 'limit.offset' debe ser un número entero`)
+				if (limit.count < 0) throw new Error(`La propiedad 'limit.count' debe ser mayor a cero`)
+				if (Math.ceil(limit.count) != limit.count) throw new Error(`La propiedad 'limit.count' debe ser un número entero`)
+
+				count = limit.count
+				offset = limit.offset
+			}
+
+			switch (this.config.driver) {
+				case PDriverNames.postgresql:
+				case PDriverNames.mariadb:
+					limitString = `${count} OFFSET ${offset}`
+					break
+				case PDriverNames.sqlsrv:
+					limitString = `OFFSET ${offset} ROWS FETCH NEXT ${count} ROWS ONLY`
+					break
+				case PDriverNames.sqlsrv2008:
+					limitString = `${offset} AND ${offset + count}`
+					break
+			}
 		}
 
 		//Construye la sentencia.
@@ -684,7 +695,7 @@ export class PDBDriver {
 	}
 
 	async selectOne<T = PTableRow>(params: PSelectParams) {
-		return await this.queryOne<T>(this.makeSelectCommand(params),null, params.groupColumns)
+		return await this.queryOne<T>(this.makeSelectCommand(params), null, params.groupColumns)
 	}
 
 	async delete(table: string, where: string | string[]) {
