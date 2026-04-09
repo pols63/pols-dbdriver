@@ -546,7 +546,7 @@ export class PDBDriver {
 					/* Si se está utilizando el caracter asterístico para realizar el filtraje, se utilizará la mecánica de comparación específica, la cual reemplazará el asterístico por el signo '%' y tendrá en cuenta la posición del mismo para realizar la comparación */
 					if (word.match(/(?<!\*)\*(?!\*)/)) {
 						/* Reemplaza los asterísticos por '%' siempre que no sea un doble asterístico */
-						word = word.replace(/(?<!\*)\*(?!\*)/, '%').replace('**', '*')
+						word = word.replace(/(?<!\*)\*(?!\*)/g, '%').replace('**', '*')
 					} else {
 						word = `%${word}%`
 					}
