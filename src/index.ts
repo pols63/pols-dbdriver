@@ -668,16 +668,21 @@ export class PDBDriver {
 				page: undefined
 			})
 			const limitPage = Math.max(Math.ceil(count / this.config.rowsPerPage), 1)
-			let page = Math.floor(PUtilsNumber.parse(params.page))
-			if (page == 0) {
-				page = undefined
-			} else {
-				page = page > limitPage ? limitPage : page
-			}
+
 			const command = this.makeSelectCommand({
 				...params,
-				page: params.page > limitPage ? limitPage : params.page
+				page: params.page
 			})
+
+			if (params.page > limitPage) {
+				return {
+					rows: [],
+					rowsCount: 0,
+					structure: {},
+					statement: command
+				}
+			}
+
 			if (!count) return {
 				rows: [],
 				rowsCount: 0,
