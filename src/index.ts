@@ -181,7 +181,7 @@ export class PDBDriver {
 			const pool = new mssql.ConnectionPool(this.config.uri ? this.config.uri : {
 				server: this.config.host,
 				database: this.config.database,
-				port: 1433,
+				port: this.config.port ?? 1433,
 				authentication: {
 					type: 'default',
 					options: {
@@ -242,7 +242,7 @@ export class PDBDriver {
 		/* Cambia el valor de los parámetros utilizando la función "escape" */
 		if (parameters) {
 			for (const parameterName in parameters) {
-				command = command.replace(new RegExp(`\\$${parameterName}`, 'g'), this.escape(parameters[parameterName]))
+				command = command.replace(new RegExp(`\\$${parameterName}(?![a-zA-Z0-9_])`, 'g'), this.escape(parameters[parameterName]))
 			}
 		}
 
@@ -459,7 +459,7 @@ export class PDBDriver {
 				having.length ? `\t\t\tHAVING (${having.join(') AND (')})` : '',
 				`\t) AS SUBQUERY`,
 				') AS FULLQUERY ',
-				`WHERE ___row_number BETWEEN ${limit}`,
+				`WHERE ___row_number BETWEEN ${limitString}`,
 				`ORDER BY ${order}`
 			]
 		} else {
@@ -757,13 +757,7 @@ export class PDBDriver {
 
 						/* Si el nombre es diferente debido a las mayúsculas y minúsculas, lo renombra */
 						if ((currentField.name as string).toLowerCase() != field.toLowerCase()) {
-							await this.queryOne(/*sql*/`
-								alter table "${schema ?? 'dbo'}"."${table}" change column "${currentField.name}" "${field}"
-									${this.getTypeForCommand(fieldDefinition)}
-									${fieldDefinition.default !== undefined ? `default ${fieldDefinition.default}` : ''}
-									${fieldDefinition.notNull ? "not null" : "null"} 
-									comment ${fieldDefinition.comments ? this.escape(fieldDefinition.comments) : "''"}
-							`)
+							await this.queryOne(`exec sp_rename '${schema ?? 'dbo'}.${table}.${currentField.name}', '${field}', 'COLUMN'`)
 						}
 
 						/* Si es notNull */
