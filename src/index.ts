@@ -241,21 +241,32 @@ export class PDBDriver {
 	private async run<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, resultsAreExpected = true) {
 		if (!this._connected) throw new Error(`El driver no está conectado con el servidor`)
 
-		/* Cambia el valor de los parámetros utilizando la función "escape" */
+		let request: any
+		if (this._inTransaction) {
+			request = this.transactionInstance.request()
+		} else {
+			request = this.engine.request()
+		}
+
+		/* Cambia el valor de los parámetros utilizando la función "escape" o parametrización nativa */
 		if (parameters) {
 			for (const parameterName in parameters) {
-				command = command.replace(new RegExp(`\\$${parameterName}(?![a-zA-Z0-9_])`, 'g'), this.escape(parameters[parameterName]))
+				const value = parameters[parameterName]
+				if (
+					value instanceof Array ||
+					(typeof value == 'object' && value !== null && 'expression' in value)
+				) {
+					// Interpolación directa para arrays o expresiones SQL
+					command = command.replace(new RegExp(`@${parameterName}(?![a-zA-Z0-9_])`, 'g'), this.escape(value))
+				} else {
+					// Parametrización nativa para tipos primitivos
+					request.input(parameterName, value === undefined ? null : value)
+				}
 			}
 		}
 
 		let results: T[] = null
 		try {
-			let request: any
-			if (this._inTransaction) {
-				request = this.transactionInstance.request()
-			} else {
-				request = this.engine.request()
-			}
 			const execute = await request.query(/*sql*/`${command}`)
 			results = execute.recordset
 		} catch (err) {

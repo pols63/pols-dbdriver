@@ -61,20 +61,26 @@ Las consultas admiten binding automático de parámetros usando el prefijo `$`. 
 - **`exec(command)`**: Ejecuta un comando SQL que no retorna filas (por ejemplo, `CREATE INDEX`, `DROP TABLE`).
 
 ```typescript
-// Consulta parametrizada
+// Consulta parametrizada (Híbrida)
 const resultados = await db.query(
-    'SELECT * FROM Usuarios WHERE Estado = $estado AND FechaRegistro >= $fecha',
+    'SELECT * FROM Usuarios WHERE Estado = @estado AND Rol IN (@roles) AND FechaRegistro >= @fecha',
     {
         estado: 'Activo',
-        fecha: new Date('2026-01-01')
+        roles: ['Admin', 'Editor'], // Se interpola de forma segura automáticamente
+        fecha: new Date('2026-01-01') // Se parametriza nativamente con SQL Server (@fecha)
     }
 );
 
 console.log(resultados.rows); // Array de filas
 ```
 
+### Parametrización Nativa Híbrida
+Cuando ejecutas una consulta parametrizada pasando el objeto de `parameters`, la librería maneja la sustitución de forma inteligente (híbrida):
+1. **Tipos Primitivos** (`string`, `number`, `boolean`, `Date`, `null`): Al usar `@parameterName` en la sentencia SQL, el driver de SQL Server los asocia automáticamente y los envía parametrizados directamente al motor. Esto protege contra SQL Injection y permite la reutilización de planes de ejecución.
+2. **Arrays y Expresiones SQL**: Debido a limitaciones de SQL Server, los arrays (ej. `@roles`) y objetos de expresión se escapan y se interpolan de forma directa en el texto del comando de manera segura.
+
 ### Escapado Manual y Template Literals (`escape`)
-Además del binding automático con `$`, puedes pasar datos de forma directa a la consulta utilizando el método `escape()` dentro de *template literals* de JavaScript. Esto te permite construir la consulta e inspeccionar o copiar la sentencia SQL completa en caso de error.
+Además del binding automático con `@`, puedes pasar datos de forma directa a la consulta utilizando el método `escape()` dentro de *template literals* de JavaScript. Esto te permite construir la consulta e inspeccionar o copiar la sentencia SQL completa en caso de error.
 
 El método `escape()` soporta números, booleanos (`1` o `0`), strings (agregando comillas simples y escapando comillas internas), fechas y **arrays** (formateándolos como listas separadas por comas, ideal para cláusulas `IN`).
 
