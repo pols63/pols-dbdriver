@@ -7,34 +7,10 @@ const mssql = (() => {
 		return null
 	}
 })()
-const mariadb = (() => {
-	try {
-		return require('mariadb')
-	} catch {
-		return null
-	}
-})()
-const sqlite3 = (() => {
-	try {
-		return require('sqlite3')
-	} catch {
-		return null
-	}
-})()
-const pg = (() => {
-	try {
-		return require('pg')
-	} catch {
-		return null
-	}
-})()
 
 export enum PDriverNames {
 	sqlsrv2008 = 'sqlsrv2008',
-	sqlsrv = 'sqlsrv',
-	mariadb = 'mariadb',
-	postgresql = 'postgresql',
-	sqlite = 'sqlite'
+	sqlsrv = 'sqlsrv'
 }
 
 export type PTableRow = {
@@ -43,8 +19,7 @@ export type PTableRow = {
 
 export type PDBDriverParams = {
 	rowsPerPage: number
-} & ({
-	driver: PDriverNames.mariadb | PDriverNames.sqlsrv | PDriverNames.sqlsrv2008 | PDriverNames.postgresql
+	driver: PDriverNames.sqlsrv | PDriverNames.sqlsrv2008
 	uri?: string
 	host?: string
 	port?: number
@@ -52,10 +27,7 @@ export type PDBDriverParams = {
 	password?: string
 	database?: string
 	requestTimeout?: number
-} | {
-	driver: PDriverNames.sqlite
-	file: string
-})
+}
 
 export type PSelectParams = {
 	from: string
@@ -198,11 +170,7 @@ export class PDBDriver {
 		if (config.rowsPerPage < 0) throw new Error(`La propiedad 'resultsPerPage' debe ser mayor a cero`)
 		if (Math.ceil(config.rowsPerPage) != config.rowsPerPage) throw new Error(`La propiedad 'resultsPerPage' debe ser un número entero`)
 
-		if (config.driver == 'mariadb') {
-			this.fieldNameDelimiter = '`'
-		} else {
-			this.fieldNameDelimiter = '"'
-		}
+		this.fieldNameDelimiter = '"'
 
 		this.config = config
 	}
@@ -210,74 +178,30 @@ export class PDBDriver {
 	/* Conexión con el servidor */
 	async connect() {
 		try {
-			switch (this.config.driver) {
-				case PDriverNames.sqlite:
-					this.engine = new (sqlite3.verbose()).Database(this.config.file)
-					break
-				case PDriverNames.postgresql: {
-					const client = new pg.Client({
-						user: this.config.user,
-						host: this.config.host,
-						database: this.config.database,
+			const pool = new mssql.ConnectionPool(this.config.uri ? this.config.uri : {
+				server: this.config.host,
+				database: this.config.database,
+				port: 1433,
+				authentication: {
+					type: 'default',
+					options: {
+						userName: this.config.user,
 						password: this.config.password,
-						port: this.config.port,
-						connectionString: this.config.uri,
-						ssl: {
-							rejectUnauthorized: false
-						}
-					})
-					await (() => new Promise((resolve, reject) => {
-						client.connect((err: any) => {
-							if (err) {
-								reject(err)
-								return
-							}
-							this.engine = client
-							resolve(null)
-						})
-					}))()
-				} break
-				case PDriverNames.mariadb: {
-					this.engine = await mariadb.createConnection({
-						database: this.config.database,
-						host: this.config.host,
-						user: this.config.user,
-						password: this.config.password ?? '',
-						port: this.config.port
-					})
-					break
-				}
-				case PDriverNames.sqlsrv2008:
-				case PDriverNames.sqlsrv: {
-					const pool = new mssql.ConnectionPool('uri' in this.config ? (this.config.uri) : {
-						server: this.config.host,
-						database: this.config.database,
-						port: 1433,
-						authentication: {
-							type: 'default',
-							// type: 'azure-active-directory-default',
-							options: {
-								userName: this.config.user,
-								password: this.config.password,
-							},
-						},
-						options: {
-							// useUTC: false,
-							encrypt: true,
-							enableArithAbort: true,
-							trustServerCertificate: true
-						},
-						requestTimeout: this.config.requestTimeout ?? 15000,
-					})
-					const connection = await pool.connect()
-					/* Artificio para cambiar el UTC en el driver */
+					},
+				},
+				options: {
+					encrypt: true,
+					enableArithAbort: true,
+					trustServerCertificate: true
+				},
+				requestTimeout: this.config.requestTimeout ?? 15000,
+			})
+			const connection = await pool.connect()
+			/* Artificio para cambiar el UTC en el driver */
 
-					const c = connection as any
-					c.config.options.useUTC = false
-					this.engine = connection
-					break
-				}
-			}
+			const c = connection as any
+			c.config.options.useUTC = false
+			this.engine = connection
 			this._connected = true
 		} catch (err) {
 			throw new Error(`Ocurrió un error al intentar conectarse al servidor de base de datos: ${err.stack}`)
@@ -286,26 +210,7 @@ export class PDBDriver {
 
 	async close() {
 		if (this._inTransaction) await this.rollbackTransaction()
-		switch (this.config.driver) {
-			case PDriverNames.mariadb: {
-				this.engine.destroy()
-				break
-			}
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv: {
-				await this.engine.close()
-				break
-			}
-			case PDriverNames.postgresql:
-				await this.engine.end()
-				this.engine.release()
-				break
-			case PDriverNames.sqlite: {
-				const connection = this.engine
-				connection.close()
-				break
-			}
-		}
+		await this.engine.close()
 		this._connected = false
 	}
 
@@ -314,28 +219,16 @@ export class PDBDriver {
 		if (value == null) {
 			return 'null'
 		} else if (typeOfValue == 'boolean') {
-			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return value ? '1' : '0'
-			} else {
-				return value.toString()
-			}
+			return value ? '1' : '0'
 		} else if (typeOfValue == 'string') {
 			return `'${(value as string).replace(/'/g, "''")}'`
 		} else if (typeOfValue == 'number') {
 			return `${value}`
 		} else if (value instanceof Date) {
-			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return `'${PUtilsDate.format(value, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
-			} else {
-				return `'${PUtilsDate.format(value, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
-			}
+			return `'${PUtilsDate.format(value, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 		} else if (typeof value == 'object' && 'engine' in value && value.engine instanceof Date) {
 			/* Compatibilidad con PDate */
-			if ([PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)) {
-				return `'${PUtilsDate.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
-			} else {
-				return `'${PUtilsDate.format(value.engine, `@y-@mm-@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
-			}
+			return `'${PUtilsDate.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
 		} else if (typeOfValue == 'object' && 'expression' in (value as object)) {
 			return (value as { expression: string }).expression
 		} else {
@@ -355,45 +248,14 @@ export class PDBDriver {
 
 		let results: T[] = null
 		try {
-			switch (this.config.driver) {
-				case PDriverNames.postgresql:
-					// this._connection.query(command, (err: any, res: any) => {
-					// 	if (err) {
-					// 		reject(err)
-					// 	} else {
-					// 		resolve(res.length ? res.map((r: any) => r.rows).flat() : res.rows)
-					// 	}
-					// })
-					break
-				case PDriverNames.sqlsrv:
-				case PDriverNames.sqlsrv2008: {
-					let request: any
-					if (this._inTransaction) {
-						request = this.transactionInstance.request()
-					} else {
-						request = this.engine.request()
-					}
-					const execute = await request.query(/*sql*/`${command}`)
-					results = execute.recordset
-					break
-				}
-				case PDriverNames.mariadb:
-					results = await this.engine.query(command)
-					break
-				case PDriverNames.sqlite: {
-					const toExecute = resultsAreExpected ? this.engine.all : this.engine.exec
-					results = await (() => new Promise((resolve, reject) => {
-						toExecute.bind(this.engine)(command, function (error: Error, rows?: T[]) {
-							if (error) {
-								reject(error)
-								return
-							}
-							resolve(rows)
-						})
-					}))()
-					break
-				}
+			let request: any
+			if (this._inTransaction) {
+				request = this.transactionInstance.request()
+			} else {
+				request = this.engine.request()
 			}
+			const execute = await request.query(/*sql*/`${command}`)
+			results = execute.recordset
 		} catch (err) {
 			throw new Error(`Ocurrió un error al intentar ejecutar la siguiente sentencia:\n${err.message}\n${command}`)
 		}
@@ -444,69 +306,52 @@ export class PDBDriver {
 
 	beginTransaction(): Promise<void> {
 		if (this._inTransaction) throw new Error(`El conector ya ha inicializado una transacción`)
-		switch (this.driver) {
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv: {
-				return new Promise((resolve, reject) => {
-					this.transactionInstance = this.engine.transaction()
-					this.transactionInstance.begin(err => {
-						if (err) {
-							reject(err)
-						} else {
-							this._inTransaction = true
-							resolve()
-						}
-					})
-				})
-			}
-		}
+		return new Promise((resolve, reject) => {
+			this.transactionInstance = this.engine.transaction()
+			this.transactionInstance.begin(err => {
+				if (err) {
+					reject(err)
+				} else {
+					this._inTransaction = true
+					resolve()
+				}
+			})
+		})
 	}
 
 	commitTransaction(): Promise<void> {
 		if (!this._inTransaction) throw new Error(`El conector no ha inicializado ninguna transacción`)
-		switch (this.driver) {
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv: {
-				return new Promise((resolve, reject) => {
-					this.transactionInstance.commit(err => {
-						if (err) {
-							reject(err)
-						} else {
-							this._inTransaction = false
-							resolve()
-						}
-					})
-				})
-			}
-		}
+		return new Promise((resolve, reject) => {
+			this.transactionInstance.commit(err => {
+				if (err) {
+					reject(err)
+				} else {
+					this._inTransaction = false
+					resolve()
+				}
+			})
+		})
 	}
 
 	rollbackTransaction(): Promise<void> {
 		if (!this._inTransaction) throw new Error(`El conector no ha inicializado ninguna transacción`)
-		switch (this.driver) {
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv: {
-				return new Promise((resolve, reject) => {
-					if (this.transactionInstance._aborted) {
-						resolve()
+		return new Promise((resolve, reject) => {
+			if (this.transactionInstance._aborted) {
+				resolve()
+			} else {
+				this.transactionInstance.rollback(err => {
+					if (err) {
+						reject(err)
 					} else {
-						this.transactionInstance.rollback(err => {
-							if (err) {
-								reject(err)
-							} else {
-								this._inTransaction = false
-								resolve()
-							}
-						})
+						this._inTransaction = false
+						resolve()
 					}
 				})
 			}
-		}
+		})
 	}
 
 	makeSelectCommand({ filter, from, select, where, having, joins, page, order, group, limit }: PSelectParams) {
-		const isSqlServer = [PDriverNames.sqlsrv, PDriverNames.sqlsrv2008].includes(this.config.driver)
-
 		const whereOrHavingDecoder = (target?: string | string[]) => {
 			if (target == null) {
 				return []
@@ -527,14 +372,8 @@ export class PDBDriver {
 		if (filter != null && filter.text) {
 			if (!filter.fields.length) throw new Error(`La propiedad 'filter.fields' debe tener al menos un elemento`)
 			const listOfWords = filter.text.replace(/\s+/g, ' ').split(' ').map(word => {
-				switch (this.config.driver) {
-					case PDriverNames.sqlsrv2008:
-					case PDriverNames.sqlsrv:
-						/* Se escapan los caracteres '%' y '\' en caso text los contenga, para no entrar en conflicto con el filtraje automático */
-						return word.replace(/(%|\\)/g, char => `\\${char}`)
-					default:
-						return word
-				}
+				/* Se escapan los caracteres '%' y '\' en caso text los contenga, para no entrar en conflicto con el filtraje automático */
+				return word.replace(/(%|\\)/g, char => `\\${char}`)
 			})
 			const subWhere: string[] = []
 			for (const field of filter.fields) {
@@ -551,7 +390,7 @@ export class PDBDriver {
 						word = `%${word}%`
 					}
 
-					return `lower(${field}) ${omit ? 'NOT' : ''} LIKE lower(${this.escape(word)})${isSqlServer ? ' collate SQL_Latin1_General_CP1_CI_AI' : ''} escape '\\'`
+					return `lower(${field}) ${omit ? 'NOT' : ''} LIKE lower(${this.escape(word)}) collate SQL_Latin1_General_CP1_CI_AI escape '\\'`
 				}).join(' and '))
 			}
 			where.push(subWhere.join(' or '))
@@ -559,7 +398,7 @@ export class PDBDriver {
 
 		/* PAGE: Si se utiliza 'page', el valor de 'limit' se asignará automáticamente */
 		if (page != null) {
-			if (isSqlServer && !order) throw new Error(`La propiedad 'order' es requerida cuando se utiliza 'page' o 'limit' con el driver '${this.config.driver}'`)
+			if (!order) throw new Error(`La propiedad 'order' es requerida cuando se utiliza 'page' o 'limit' con el driver '${this.config.driver}'`)
 
 			if (page < 0) throw new Error(`La propiedad 'page' debe ser mayor a cero`)
 			if (Math.ceil(page) != page) throw new Error(`La propiedad 'page' debe ser un número entero`)
@@ -589,10 +428,6 @@ export class PDBDriver {
 			}
 
 			switch (this.config.driver) {
-				case PDriverNames.postgresql:
-				case PDriverNames.mariadb:
-					limitString = `${count} OFFSET ${offset}`
-					break
 				case PDriverNames.sqlsrv:
 					limitString = `OFFSET ${offset} ROWS FETCH NEXT ${count} ROWS ONLY`
 					break
@@ -634,11 +469,7 @@ export class PDBDriver {
 				order ? `ORDER BY ${order}` : ''
 			)
 			if (limitString) {
-				if (this.config.driver == PDriverNames.sqlsrv) {
-					query.push(limitString)
-				} else {
-					query.push(`LIMIT ${limitString}`)
-				}
+				query.push(limitString)
 			}
 		}
 
@@ -724,8 +555,7 @@ export class PDBDriver {
 				if (typeof param.where == 'string') param.where = [param.where]
 				saveStatements.push(`UPDATE ${table} SET ${pairs.map(pair => `${pair[0]} = ${pair[1]}`).join(', ')} WHERE (${param.where.join(') AND (')});`)
 			} else {
-				const returning = this.config.driver == PDriverNames.postgresql && param.returning ? `returning "${param.returning}"` : ''
-				saveStatements.push(`INSERT INTO ${table} (${pairs.map(pair => pair[0]).join(', ')}) VALUES (${pairs.map(pair => pair[1]).join(',')})${returning ? ` ${returning}` : ''};`)
+				saveStatements.push(`INSERT INTO ${table} (${pairs.map(pair => pair[0]).join(', ')}) VALUES (${pairs.map(pair => pair[1]).join(',')});`)
 			}
 		}
 		return saveStatements.join('\n')
@@ -733,20 +563,7 @@ export class PDBDriver {
 
 	makeSaveAndReturnCommand(table: string, ...params: PSaveParams[]): [string, string] {
 		const saveStatements = this.makeSaveCommand(table, ...params)
-
-		let getIDStatement: string
-		switch (this.config.driver) {
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv:
-				getIDStatement = /*sql*/`select @@identity as 'lastID'`
-				break
-			case PDriverNames.mariadb:
-				getIDStatement = /*sql*/`select last_insert_id() as 'lastID'`
-				break
-			case PDriverNames.sqlite:
-				getIDStatement = /*sql*/`select last_insert_rowid() as 'lastID'`
-				break
-		}
+		const getIDStatement = `select @@identity as 'lastID'`
 		return [saveStatements, getIDStatement + ';']
 	}
 
@@ -776,57 +593,31 @@ export class PDBDriver {
 
 		/* Obtiene información del schema, si no existe, lo crea crea */
 		if (schema) {
-			const schemaInformation = await (async () => {
-				switch (this.config.driver) {
-					case PDriverNames.sqlsrv2008:
-					case PDriverNames.sqlsrv:
-						return await this.queryOne(/*sql*/`
-							select
-								A0.name
-							from sys.schemas A0
-							where
-								A0.name = '${schema}'
-						`)
-				}
-			})()
+			const schemaInformation = await this.queryOne(/*sql*/`
+				select
+					A0.name
+				from sys.schemas A0
+				where
+					A0.name = '${schema}'
+			`)
 			if (!schemaInformation) {
-				switch (this.config.driver) {
-					case PDriverNames.sqlsrv2008:
-					case PDriverNames.sqlsrv:
-						// await this.exec(/*sql*/`create schema [${schema}]`, true)
-						await this.exec(/*sql*/`create schema [${schema}]`)
-				}
+				await this.exec(/*sql*/`create schema [${schema}]`)
 			}
 		}
 
 		/* Información de la tabla */
-		const tableInformation = await (async () => {
-			switch (this.config.driver) {
-				case PDriverNames.sqlsrv2008:
-				case PDriverNames.sqlsrv:
-					return await this.queryOne(/*sql*/`
-						select
-							A0.name,
-							A1.value as comments
-						from sys.objects A0
-						left join sys.extended_properties A1 on A1.major_id = A0.object_id and A1.minor_id = 0
-						inner join sys.schemas A2 on A2.schema_id = A0.schema_id
-						where
-							type = 'U'
-							and A0.name = '${table}'
-							and A2.name = '${schema ?? 'dbo'}'
-					`)
-				case PDriverNames.sqlite:
-					return this.queryOne(/*sql*/`
-						select
-							A0.name
-						from sqlite_schema A0
-						where
-							type = 'table'
-							and A0.name = '${table}'
-					`)
-			}
-		})()
+		const tableInformation = await this.queryOne(/*sql*/`
+			select
+				A0.name,
+				A1.value as comments
+			from sys.objects A0
+			left join sys.extended_properties A1 on A1.major_id = A0.object_id and A1.minor_id = 0
+			inner join sys.schemas A2 on A2.schema_id = A0.schema_id
+			where
+				type = 'U'
+				and A0.name = '${table}'
+				and A2.name = '${schema ?? 'dbo'}'
+		`)
 
 		/* Validaciones para las definiciones de los campos */
 		if (!Object.keys(fields).length) throw new Error(`La propiedad 'fields' debe tener definido al menos un campo`)
@@ -834,17 +625,14 @@ export class PDBDriver {
 			const fieldDefinition = fields[field]
 
 			/* Homogeniza el tipo del campo de acuerdo al driver */
-			fieldDefinition.type = (() => {
-				if (config.driver == PDriverNames.sqlsrv && fieldDefinition.type == PFieldTypes.boolean) {
-					return PFieldTypes.smallint
-				} else if (config.driver == PDriverNames.sqlite && fieldDefinition.type == PFieldTypes.varchar) {
-					return PFieldTypes.text
-				} else if (config.driver == PDriverNames.sqlite && [PFieldTypes.bigint, PFieldTypes.smallint].includes(fieldDefinition.type)) {
-					return PFieldTypes.int
-				} else {
-					return fieldDefinition.type
+			if (fieldDefinition.type == PFieldTypes.boolean) {
+				(fieldDefinition as any).type = PFieldTypes.smallint
+				if (fieldDefinition.default !== undefined) {
+					if (typeof fieldDefinition.default == 'boolean') {
+						(fieldDefinition as any).default = fieldDefinition.default ? 1 : 0
+					}
 				}
-			})()
+			}
 
 			/* Valida la propiedad length */
 			if (fieldDefinition.type == PFieldTypes.varchar && (!PUtilsNumber.isInteger(fieldDefinition.length) || fieldDefinition.length <= 0)) {
@@ -876,64 +664,38 @@ export class PDBDriver {
 					case PFieldTypes.decimal:
 						if (typeof fieldDefinition.default != 'number') throw new Error(errorMessageForType)
 						break
-					case PFieldTypes.boolean:
-						if (typeof fieldDefinition.default != 'boolean') throw new Error(errorMessageForType)
-						fieldDefinition.default = fieldDefinition.default ? 1 : 0
-						break
 					case PFieldTypes.varchar:
 						if (typeof fieldDefinition.default != 'string') throw new Error(errorMessageForType)
 						break
 					case PFieldTypes.date:
 					case PFieldTypes.datetime:
 						if (!(fieldDefinition.default instanceof Date)) throw new Error(errorMessageForType)
-						switch (this.config.driver) {
-							case PDriverNames.sqlsrv2008:
-							case PDriverNames.sqlsrv:
-								fieldDefinition.default = PUtilsDate.format(fieldDefinition.default, `'@y@mm@dd @hh:@ii:@ss'`)
-								break
-							default:
-								fieldDefinition.default = PUtilsDate.format(fieldDefinition.default, `'@y-@mm-@dd @hh:@ii:@ss'`)
-								break
-						}
+						fieldDefinition.default = PUtilsDate.format(fieldDefinition.default, `'@y@mm@dd @hh:@ii:@ss'`)
 						break
 				}
 			}
 		}
 
 		if (tableInformation?.name) {
-			const currentFields = await (async () => {
-				switch (this.config.driver) {
-					case PDriverNames.sqlsrv2008:
-					case PDriverNames.sqlsrv:
-						return await this.query(/*sql*/`
-							select
-								A0.name,
-								A2.name as 'type',
-								substring(A4.definition, 3, len(A4.definition) - 4) as 'default_value',
-								A4.name as 'default_constraint_name',
-								A3.value as 'comments',
-								A0.max_length as 'length',
-								A0.is_nullable
-							from sys.all_columns A0
-							inner join sys.tables A1 on A1.object_id = A0.object_id
-							inner join sys.types A2 on A2.system_type_id = A0.system_type_id
-							left join sys.extended_properties A3 on A3.major_id = A1.object_id and A3.minor_id = A0.column_id
-							left join sys.default_constraints A4 on A4.parent_object_id = A1.object_id and A4.parent_column_id = A0.column_id
-							left join sys.schemas A5 on A5.schema_id = A1.schema_id
-							where
-								A1.name = '${table}'
-								${schema ? `and A5.name = '${schema}'` : ''}
-						`)
-					case PDriverNames.sqlite:
-						return this.query(/*sql*/`
-							select
-								name,
-								type,
-								dflt_value as 'default_value'
-							from pragma_table_info('${table}')
-						`)
-				}
-			})()
+			const currentFields = await this.query(/*sql*/`
+				select
+					A0.name,
+					A2.name as 'type',
+					substring(A4.definition, 3, len(A4.definition) - 4) as 'default_value',
+					A4.name as 'default_constraint_name',
+					A3.value as 'comments',
+					A0.max_length as 'length',
+					A0.is_nullable
+				from sys.all_columns A0
+				inner join sys.tables A1 on A1.object_id = A0.object_id
+				inner join sys.types A2 on A2.system_type_id = A0.system_type_id
+				left join sys.extended_properties A3 on A3.major_id = A1.object_id and A3.minor_id = A0.column_id
+				left join sys.default_constraints A4 on A4.parent_object_id = A1.object_id and A4.parent_column_id = A0.column_id
+				left join sys.schemas A5 on A5.schema_id = A1.schema_id
+				where
+					A1.name = '${table}'
+					${schema ? `and A5.name = '${schema}'` : ''}
+			`)
 
 			const recordsCount = await this.count({ from: `${schema ? `[${schema}].` : ''}[${table}]` })
 
@@ -945,55 +707,26 @@ export class PDBDriver {
 
 				if (!currentField) {
 					/* Si la columna no existe, intentará crearla */
-					if (config.driver != PDriverNames.sqlite && fieldDefinition.primaryKey == true) {
+					if (fieldDefinition.primaryKey == true) {
 						/* Validación que impedirá insertar una columna 'id' si existen registros en la tabla */
 						if (recordsCount) throw new Error(`La tabla '${schema ? `${schema}.` : ''}${table}' cuenta con registros. No se puede agregar el ID '${field}'`)
-						switch (config.driver) {
-							case PDriverNames.sqlsrv2008:
-							case PDriverNames.sqlsrv:
-								//ALTER TABLE BD_EXTENDS.Comprobantes.DocumentosArchivos ADD Column1 int IDENTITY(0,1) NULL;
-								await this.queryOne(/*sql*/ `
-									alter table ${schema ? `"${schema}".` : ''}"${table}" add ${field} ${this.getTypeForCommand(fieldDefinition)} ${('autoincrement' in fieldDefinition && fieldDefinition.autoincrement) ? `identity(0, 1)` : ''} not null;
-									alter table ${schema ? `"${schema}".` : ''}"${table}" add constraint "${table}_pk" primary key (${field});
-								`)
-								break
-						}
+						//ALTER TABLE BD_EXTENDS.Comprobantes.DocumentosArchivos ADD Column1 int IDENTITY(0,1) NULL;
+						await this.queryOne(/*sql*/ `
+							alter table ${schema ? `"${schema}".` : ''}"${table}" add ${field} ${this.getTypeForCommand(fieldDefinition)} ${('autoincrement' in fieldDefinition && fieldDefinition.autoincrement) ? `identity(0, 1)` : ''} not null;
+							alter table ${schema ? `"${schema}".` : ''}"${table}" add constraint "${table}_pk" primary key (${field});
+						`)
 					} else {
 						/* Si ya existen registros, no se podrá crear una columna sin haber especificado un valor por defecto */
 						if (recordsCount && fieldDefinition.notNull && fieldDefinition.default == null) {
 							throw new Error(`La tabla '${table}' cuenta con registros. No se puede agregar la columna '${field}' como 'notNull' sin haber especificado un valor en la propiedad 'default'`)
 						}
-						switch (config.driver) {
-							case PDriverNames.sqlsrv2008:
-							case PDriverNames.sqlsrv:
-								await this.queryOne(/*sql*/ `
-									alter table ${schema ? `[${schema}].` : ''}[${table}] add
-										${field} 
-										${this.getTypeForCommand(fieldDefinition)}
-										${fieldDefinition.notNull ? "not null" : 'null'}
-										${fieldDefinition.default != undefined ? `default ${this.escape(fieldDefinition.default)}` : ''}
-								`)
-								break
-							case PDriverNames.sqlite:
-								await this.queryOne(/*sql*/`
-									ALTER TABLE ${schema ? `[${schema}].` : ''}[${table}] ADD
-										${field} 
-										${this.getTypeForCommand(fieldDefinition)} DEFAULT (5);
-										${fieldDefinition.default != undefined ? `default ${this.escape(fieldDefinition.default)}` : ''}
-								`)
-								break
-						}
-
-						/* Se actualiza el valor por defecto definido en la columna */
-						// if (fieldDefinition.default !== undefined) {
-						// 	switch (this.config.driver) {
-						// 		case DriverNames.sqlsrv2008:
-						// 		case DriverNames.sqlsrv:
-						// 			if (currentField.default_constraint_name) await this.query(/*sql*/`alter table "${table}" drop constraint "${currentField.default_constraint_name}"`)
-						// 			await this.query(/*sql*/`alter table "${table}" add default ${fieldDefinition.default} for "${field}"`)
-						// 			break
-						// 	}
-						// }
+						await this.queryOne(/*sql*/ `
+							alter table ${schema ? `[${schema}].` : ''}[${table}] add
+								${field} 
+								${this.getTypeForCommand(fieldDefinition)}
+								${fieldDefinition.notNull ? "not null" : 'null'}
+								${fieldDefinition.default != undefined ? `default ${this.escape(fieldDefinition.default)}` : ''}
+						`)
 					}
 				} else {
 					/* Si la columna ya existe, intentará actualizarla siempre que no se requiera que sea de tipo id */
@@ -1005,52 +738,32 @@ export class PDBDriver {
 							currentType != fieldDefinition.type.toString()
 							|| (currentType == 'varchar' && fieldDefinition.type == PFieldTypes.varchar && (currentField.length as number) < fieldDefinition.length)
 						) {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									await this.queryOne(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" alter column "${field}" ${this.getTypeForCommand(fieldDefinition)}`)
-									break
-							}
+							await this.queryOne(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" alter column "${field}" ${this.getTypeForCommand(fieldDefinition)}`)
 						}
 
 						/* Actualiza los comentarios */
 						if ((currentField.comments ?? '') != (fieldDefinition.comments ?? '')) {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									await this.queryOne(/*sql*/`
-										exec sys.${!currentField.comments ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N'${fieldDefinition.comments}',
-											'schema', N'${schema ?? 'dbo'}', 'table', N'${table}', 'column', N'${field}'
-									`)
-									break
-							}
+							await this.queryOne(/*sql*/`
+								exec sys.${!currentField.comments ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N'${fieldDefinition.comments}',
+									'schema', N'${schema ?? 'dbo'}', 'table', N'${table}', 'column', N'${field}'
+							`)
 						}
 
 						/* Actualiza el valor por defecto */
 						if (fieldDefinition.default != currentField.default_value) {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									if (currentField.default_constraint_name) await this.query(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" drop constraint "${currentField.default_constraint_name}"`)
-									if (fieldDefinition.default != null) await this.query(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" add default ${this.escape(fieldDefinition.default)} for "${field}"`)
-									break
-							}
+							if (currentField.default_constraint_name) await this.query(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" drop constraint "${currentField.default_constraint_name}"`)
+							if (fieldDefinition.default != null) await this.query(/*sql*/`alter table "${schema ?? 'dbo'}"."${table}" add default ${this.escape(fieldDefinition.default)} for "${field}"`)
 						}
 
 						/* Si el nombre es diferente debido a las mayúsculas y minúsculas, lo renombra */
 						if ((currentField.name as string).toLowerCase() != field.toLowerCase()) {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									await this.queryOne(/*sql*/`
-										alter table "${schema ?? 'dbo'}"."${table}" change column "${currentField.name}" "${field}"
-											${this.getTypeForCommand(fieldDefinition)}
-											${fieldDefinition.default !== undefined ? `default ${fieldDefinition.default}` : ''}
-											${fieldDefinition.notNull ? "not null" : "null"} 
-											comment ${fieldDefinition.comments ? this.escape(fieldDefinition.comments) : "''"}
-									`)
-									break
-							}
+							await this.queryOne(/*sql*/`
+								alter table "${schema ?? 'dbo'}"."${table}" change column "${currentField.name}" "${field}"
+									${this.getTypeForCommand(fieldDefinition)}
+									${fieldDefinition.default !== undefined ? `default ${fieldDefinition.default}` : ''}
+									${fieldDefinition.notNull ? "not null" : "null"} 
+									comment ${fieldDefinition.comments ? this.escape(fieldDefinition.comments) : "''"}
+							`)
 						}
 
 						/* Si es notNull */
@@ -1058,14 +771,9 @@ export class PDBDriver {
 							((currentField.is_nullable as number) && fieldDefinition.notNull)
 							|| (!(currentField.is_nullable as number) && !fieldDefinition.notNull)
 						) {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									await this.queryOne(/*sql*/`
-										ALTER TABLE "${schema ?? 'dbo'}"."${table}" ALTER COLUMN "${field}" ${this.getTypeForCommand(fieldDefinition)} ${fieldDefinition.notNull ? 'NOT' : ''} NULL
-									`)
-									break
-							}
+							await this.queryOne(/*sql*/`
+								ALTER TABLE "${schema ?? 'dbo'}"."${table}" ALTER COLUMN "${field}" ${this.getTypeForCommand(fieldDefinition)} ${fieldDefinition.notNull ? 'NOT' : ''} NULL
+							`)
 						}
 					}
 				}
@@ -1077,18 +785,9 @@ export class PDBDriver {
 			for (const field in fields) {
 				const fieldDefinition: PFieldDefinition = fields[field] as PFieldDefinition
 				if (fieldDefinition.primaryKey) {
-					switch (config.driver) {
-						case PDriverNames.sqlsrv2008:
-						case PDriverNames.sqlsrv: {
-							const identity = ('autoincrement' in fieldDefinition && fieldDefinition.autoincrement) ? 'identity(1,1)' : ''
-							fieldsCommands.push(`${field} ${fieldDefinition.type} ${identity} not null`)
-							constraints.push(/*sql*/`constraint ${table}_${field}_pk primary key clustered ([${field}])`)
-							break
-						}
-						case PDriverNames.sqlite:
-							fieldsCommands.push(`${field} ${this.getTypeForCommand(fieldDefinition)} PRIMARY KEY ${[PFieldTypes.int].includes(fieldDefinition.type) ? 'AUTOINCREMENT' : ''}`)
-							break
-					}
+					const identity = ('autoincrement' in fieldDefinition && fieldDefinition.autoincrement) ? 'identity(1,1)' : ''
+					fieldsCommands.push(`${field} ${fieldDefinition.type} ${identity} not null`)
+					constraints.push(/*sql*/`constraint ${table}_${field}_pk primary key clustered ([${field}])`)
 				} else {
 					fieldsCommands.push([
 						`"${field}"`,
@@ -1099,97 +798,59 @@ export class PDBDriver {
 				}
 			}
 			/* Ejecuta la sentencia */
-			switch (this.config.driver) {
-				case PDriverNames.sqlsrv2008:
-				case PDriverNames.sqlsrv:
-					await this.queryOne(/*sql*/ `
-						create table ${schema ? `[${schema}].` : ''}[${table}] (
-							${fieldsCommands.join(",\n")}${constraints.length ? ',' : ''}
-							${constraints.join(",\n")}
-						)
-					`)
-					break
-				case PDriverNames.sqlite:
-					await this.queryOne(/*sql*/ `
-						create table ${table} (
-							${fieldsCommands.join(",\n")}${constraints.length ? ',' : ''}
-							${constraints.join(",\n")}
-						)
-					`)
-					break
-			}
+			await this.queryOne(/*sql*/ `
+				create table ${schema ? `[${schema}].` : ''}[${table}] (
+					${fieldsCommands.join(",\n")}${constraints.length ? ',' : ''}
+					${constraints.join(",\n")}
+				)
+			`)
 		}
 
 		/* Asignación de los comentarios a la tabla */
-		switch (this.config.driver) {
-			case PDriverNames.sqlsrv2008:
-			case PDriverNames.sqlsrv:
-				await this.queryOne(/*sql*/`EXEC sys.${tableInformation?.comments == null ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N${this.escape(comments)}, 'schema', N'${schema ? schema : 'dbo'}', 'table', N${this.escape(table)}`)
-				break
-		}
+		await this.queryOne(/*sql*/`EXEC sys.${tableInformation?.comments == null ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N${this.escape(comments)}, 'schema', N'${schema ? schema : 'dbo'}', 'table', N${this.escape(table)}`)
 
-		/* Construcción de las llaves primarias para varios drivers */
-		if (config.driver != PDriverNames.sqlite) {
-			/* Obtiene las limitaciones */
-			const constraints = await (async () => {
-				switch (this.config.driver) {
-					case PDriverNames.sqlsrv2008:
-					case PDriverNames.sqlsrv:
-						return await this.query(/*sql*/`
-							select * 
-							from sys.objects A0
-							inner join sys.objects A1 on A1.object_id = A0.parent_object_id
-							inner join sys.schemas A2 on A2.schema_id = A1.schema_id
-							where
-								A1.name = '${table}'
-								and A0.type = 'PK'
-								${schema ? `and A2.name = '${schema}'` : ''}
-						`)
-				}
-			})()
+		/* Construcción de las llaves primarias */
+		/* Obtiene las limitaciones */
+		const constraints = await this.query(/*sql*/`
+			select * 
+			from sys.objects A0
+			inner join sys.objects A1 on A1.object_id = A0.parent_object_id
+			inner join sys.schemas A2 on A2.schema_id = A1.schema_id
+			where
+				A1.name = '${table}'
+				and A0.type = 'PK'
+				${schema ? `and A2.name = '${schema}'` : ''}
+		`)
 
-			for (const field in fields) {
-				const fieldDefinition = fields[field]
-				/* Crea las llaves primaria cuando existe un ID */
-				if (fieldDefinition.primaryKey && !constraints?.rowsCount) {
-					switch (this.config.driver) {
-						case PDriverNames.sqlsrv2008:
-						case PDriverNames.sqlsrv:
-							await this.queryOne(/*sql*/`alter table [${table}] add constraint "${field}_pk" primary key clustered ("${field}")`)
-							break
-					}
-				}
+		for (const field in fields) {
+			const fieldDefinition = fields[field]
+			/* Crea las llaves primaria cuando existe un ID */
+			if (fieldDefinition.primaryKey && !constraints?.rowsCount) {
+				await this.queryOne(/*sql*/`alter table [${table}] add constraint "${field}_pk" primary key clustered ("${field}")`)
 			}
 		}
 	}
 
 	async buildForeignKeys({ schema, table, fields }: PBuildForeignKeysParams) {
 		const config = this.config
-		if (config.driver == PDriverNames.sqlite) throw new Error(`No es posible crear llaves foráneas en bases de datos de tipo 'sqlite'`)
 
 		/* Obtiene las limitaciones referenciales */
-		const referentialConstraints = await (async () => {
-			switch (this.config.driver) {
-				case PDriverNames.sqlsrv2008:
-				case PDriverNames.sqlsrv:
-					return await this.query(/*sql*/`
-						select
-							/* Información de la tabla que tiene la referencia */
-							A1.name as table_name,
-							A2.name as column_name,
-							/* Información de la tabla referenciada */
-							A3.name as reference_table,
-							A4.name as reference_column
-						from sys.foreign_key_columns A0
-						inner join sys.tables A1 on A1.object_id = A0.parent_object_id
-						inner join sys.columns A2 on A2.object_id = A1.object_id and A2.column_id = A0.parent_column_id
-						inner join sys.tables A3 on A3.object_id = A0.referenced_object_id
-						inner join sys.columns A4 on A4.object_id = A3.object_id and A4.column_id = A0.referenced_column_id
-						where 
-							A1.name = '${table}'
-					`)
-			}
-		})()
+		const referentialConstraints = await this.query(/*sql*/`
+			select
+				/* Información de la tabla que tiene la referencia */
+				A1.name as table_name,
+				A2.name as column_name,
+				/* Información de la tabla referenciada */
+				A3.name as reference_table,
+				A4.name as reference_column
+			from sys.foreign_key_columns A0
+			inner join sys.tables A1 on A1.object_id = A0.parent_object_id
+			inner join sys.columns A2 on A2.object_id = A1.object_id and A2.column_id = A0.parent_column_id
+			inner join sys.tables A3 on A3.object_id = A0.referenced_object_id
+			inner join sys.columns A4 on A4.object_id = A3.object_id and A4.column_id = A0.referenced_column_id
+			where 
+				A1.name = '${table}'
+		`)
 
 		/* Adición de atributos adicionales */
 		for (const field in fields) {
@@ -1202,12 +863,7 @@ export class PDBDriver {
 				/* Si se ha definido una llave foránea, se crea */
 				if (!referentialConstraint) {
 					try {
-						switch (this.config.driver) {
-							case PDriverNames.sqlsrv2008:
-							case PDriverNames.sqlsrv:
-								await this.queryOne(/*sql*/`ALTER TABLE "${schema ?? 'dbo'}"."${table}" ADD CONSTRAINT "fk_${schema ?? 'dbo'}_${table}_${field}" FOREIGN KEY ("${field}") REFERENCES "${foreignKey.schema ?? 'dbo'}"."${foreignKey.table}"("${foreignKey.field}")`)
-								break
-						}
+						await this.queryOne(/*sql*/`ALTER TABLE "${schema ?? 'dbo'}"."${table}" ADD CONSTRAINT "fk_${schema ?? 'dbo'}_${table}_${field}" FOREIGN KEY ("${field}") REFERENCES "${foreignKey.schema ?? 'dbo'}"."${foreignKey.table}"("${foreignKey.field}")`)
 					} catch (err) {
 						throw new Error(`No se pudo crear el 'foreignKey' '${table}.fk_${table}_${field}' por lo siguiente:\n${err.message}`)
 					}
@@ -1218,12 +874,7 @@ export class PDBDriver {
 				if (referentialConstraint) {
 					for (const rc of referentialConstraint) {
 						try {
-							switch (this.config.driver) {
-								case PDriverNames.sqlsrv2008:
-								case PDriverNames.sqlsrv:
-									await this.queryOne(/*sql*/`ALTER TABLE ${schema ? `"${schema}".` : ''}."${table}" drop CONSTRAINT "${rc.CONSTRAINT_NAME}"`)
-									break
-							}
+							await this.queryOne(/*sql*/`ALTER TABLE ${schema ? `"${schema}".` : ''}."${table}" drop CONSTRAINT "${rc.CONSTRAINT_NAME}"`)
 						} catch (err) {
 							throw new Error(`No se pudo eliminar el 'foreignKey' de nombre '${rc.constraint_name}' por lo siguiente:\n${err.message}`)
 						}
@@ -1241,15 +892,9 @@ export class PDBDriver {
 			case PFieldTypes.decimal:
 				return `${fieldDefinition.type}(${fieldDefinition.length})`
 			case PFieldTypes.text:
-				return fieldDefinition.type.toString()
 			case PFieldTypes.int:
 			case PFieldTypes.bigint:
 			case PFieldTypes.smallint:
-				if (this.config.driver == PDriverNames.sqlite) {
-					return `integer`
-				} else {
-					return fieldDefinition.type.toString()
-				}
 			default:
 				return fieldDefinition.type.toString()
 		}
