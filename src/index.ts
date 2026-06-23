@@ -437,9 +437,14 @@ export class PDBDriver {
 			}
 		}
 
+		let selectString = select ?? '*'
+		if (page != null) {
+			selectString += ', COUNT(*) OVER() as ___total_rows'
+		}
+
 		//Construye la sentencia.
 		let query: string[] = [
-			`SELECT ${select ?? '*'}`,
+			`SELECT ${selectString}`,
 			`FROM ${from}`,
 			joins ?? '',
 			where.length ? /*sql*/`WHERE (${where.join(') AND (')})` : ''
@@ -448,7 +453,7 @@ export class PDBDriver {
 		//Si $page no está vacío, se paginan los resultados, caso contrario, se continúa la construcción de la sentencia poniendo al final las órdenes ORDER y GRUOP en caso no estén vacías.
 		if (this.config.driver == PDriverNames.sqlsrv2008 && limitString) {
 			query = [
-				'SELECT',
+				'SELECT *',
 				'FROM (',
 				`\tSELECT`,
 				`\t\t*`,
@@ -493,34 +498,29 @@ export class PDBDriver {
 				page: undefined
 			}), null, params.groupColumns)
 		} else {
-			const count = await this.count({
-				...params,
-				order: undefined,
-				page: undefined
-			})
-			const limitPage = Math.max(Math.ceil(count / this.config.rowsPerPage), 1)
-
 			const command = this.makeSelectCommand({
 				...params,
 				page: params.page
 			})
 
-			if (params.page > limitPage) {
-				return {
-					rows: [],
-					rowsCount: 0,
-					structure: {},
-					statement: command
+			const result = await this.query<T>(command, null, params.groupColumns)
+
+			let count = 0
+			if (result.rows.length > 0) {
+				const firstRow = result.rows[0] as any
+				count = Number(firstRow.___total_rows ?? 0)
+
+				for (const row of result.rows as any[]) {
+					delete row.___total_rows
+					delete row.___row_number
 				}
 			}
 
-			if (!count) return {
-				rows: [],
-				rowsCount: 0,
-				structure: {},
-				statement: command
+			if (result.structure) {
+				delete result.structure.___total_rows
+				delete result.structure.___row_number
 			}
-			const result = await this.query<T>(command, null, params.groupColumns)
+
 			return {
 				rows: result.rows,
 				rowsCount: count,
@@ -801,7 +801,9 @@ export class PDBDriver {
 		}
 
 		/* Asignación de los comentarios a la tabla */
-		await this.queryOne(/*sql*/`EXEC sys.${tableInformation?.comments == null ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N${this.escape(comments)}, 'schema', N'${schema ? schema : 'dbo'}', 'table', N${this.escape(table)}`)
+		if (comments !== undefined) {
+			await this.queryOne(/*sql*/`EXEC sys.${tableInformation?.comments == null ? 'sp_addextendedproperty' : 'sp_updateextendedproperty'} 'MS_Description', N${this.escape(comments)}, 'schema', N'${schema ? schema : 'dbo'}', 'table', N${this.escape(table)}`)
+		}
 
 		/* Construcción de las llaves primarias */
 		/* Obtiene las limitaciones */
