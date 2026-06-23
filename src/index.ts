@@ -140,6 +140,20 @@ export type PBuildForeignKeysParams = {
 	}
 }
 
+export enum PDBRoutineTypes {
+	procedure = 'P',
+	scalarFunction = 'FN',
+	tableValuedFunction = 'TF',
+	inlineTableValuedFunction = 'IF'
+}
+
+export type PBuildProcedureOrFunctionParams = {
+	schema?: string
+	name: string
+	type: PDBRoutineTypes
+	definition: string
+}
+
 export class PDBDriver {
 	private engine: any
 
@@ -907,5 +921,54 @@ export class PDBDriver {
 			default:
 				return fieldDefinition.type.toString()
 		}
+	}
+
+	async getProcedureOrFunction(name: string, schema?: string): Promise<{ type: PDBRoutineTypes, definition: string } | null> {
+		const result = await this.query<{ type: string, definition: string }>(/*sql*/`
+			SELECT 
+				O.type as [type],
+				M.definition as [definition]
+			FROM sys.objects O
+			INNER JOIN sys.sql_modules M ON O.object_id = M.object_id
+			INNER JOIN sys.schemas S ON O.schema_id = S.schema_id
+			WHERE S.name = @schema AND O.name = @name
+		`, {
+			schema: schema ?? 'dbo',
+			name
+		})
+
+		const row = result.rows[0]
+		if (!row) return null
+
+		const typeMapping: Record<string, PDBRoutineTypes> = {
+			'P': PDBRoutineTypes.procedure,
+			'FN': PDBRoutineTypes.scalarFunction,
+			'TF': PDBRoutineTypes.tableValuedFunction,
+			'IF': PDBRoutineTypes.inlineTableValuedFunction
+		}
+
+		const type = typeMapping[row.type.trim()]
+		if (!type) return null
+
+		return {
+			type,
+			definition: row.definition
+		}
+	}
+
+	async buildProcedureOrFunction({ schema, name, type, definition }: PBuildProcedureOrFunctionParams): Promise<void> {
+		const currentSchema = schema ?? 'dbo'
+
+		// 1. Verifica si ya existe
+		const exists = await this.getProcedureOrFunction(name, currentSchema)
+
+		if (exists) {
+			// 2. Si existe, lo elimina primero según su tipo
+			const dropType = type === PDBRoutineTypes.procedure ? 'PROCEDURE' : 'FUNCTION'
+			await this.exec(`DROP ${dropType} [${currentSchema}].[${name}]`)
+		}
+
+		// 3. Ejecuta la definición provista para crearlo
+		await this.exec(definition)
 	}
 }

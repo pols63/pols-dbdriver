@@ -248,3 +248,34 @@ await db.buildForeignKeys({
     }
 });
 ```
+
+- **`buildProcedureOrFunction`**: Crea o actualiza de manera segura y compatible (incluso con SQL Server 2008) un procedimiento o función basándose en el enum `PDBRoutineTypes`.
+- **`getProcedureOrFunction`**: Recupera el tipo y la definición de código SQL de un procedimiento o función existente en el catálogo del sistema.
+
+```typescript
+import { PDBRoutineTypes } from './src/index';
+
+// 1. Crear o actualizar un Procedure
+await db.buildProcedureOrFunction({
+    schema: 'dbo',
+    name: 'ObtenerClientesActivos',
+    type: PDBRoutineTypes.procedure,
+    definition: `
+        CREATE PROCEDURE dbo.ObtenerClientesActivos
+            @fechaMinima DATETIME
+        AS
+        BEGIN
+            SET NOCOUNT ON;
+            SELECT * FROM Clientes WHERE Activo = 1 AND FechaRegistro >= @fechaMinima
+        END
+    `
+});
+
+// 2. Obtener la definición de un Procedure o Función
+const metadata = await db.getProcedureOrFunction('ObtenerClientesActivos', 'dbo');
+if (metadata) {
+    console.log('Tipo de objeto:', metadata.type); // PDBRoutineTypes.procedure ('P')
+    console.log('Código SQL:', metadata.definition);
+}
+```
+```
