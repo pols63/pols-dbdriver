@@ -214,7 +214,7 @@ export class PDBDriver {
 		this._connected = false
 	}
 
-	escape(value?: number | string | boolean | Date | { engine?: unknown } | { expression: string } | null | unknown, fullDate = true): string {
+	escape(value?: number | string | boolean | Date | { engine?: unknown } | { expression: string } | null | unknown | unknown[], fullDate = true): string {
 		const typeOfValue = typeof value
 		if (value == null) {
 			return 'null'
@@ -226,6 +226,8 @@ export class PDBDriver {
 			return `${value}`
 		} else if (value instanceof Date) {
 			return `'${PUtilsDate.format(value, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`
+		} else if (value instanceof Array) {
+			return value.map(v => this.escape(v, fullDate)).join(', ')
 		} else if (typeof value == 'object' && 'engine' in value && value.engine instanceof Date) {
 			/* Compatibilidad con PDate */
 			return `'${PUtilsDate.format(value.engine, `@y@mm@dd${fullDate ? ' @hh:@ii:@ss' : ''}`)}'`

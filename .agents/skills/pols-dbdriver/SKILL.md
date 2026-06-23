@@ -73,6 +73,26 @@ const resultados = await db.query(
 console.log(resultados.rows); // Array de filas
 ```
 
+### Escapado Manual y Template Literals (`escape`)
+Además del binding automático con `$`, puedes pasar datos de forma directa a la consulta utilizando el método `escape()` dentro de *template literals* de JavaScript. Esto te permite construir la consulta e inspeccionar o copiar la sentencia SQL completa en caso de error.
+
+El método `escape()` soporta números, booleanos (`1` o `0`), strings (agregando comillas simples y escapando comillas internas), fechas y **arrays** (formateándolos como listas separadas por comas, ideal para cláusulas `IN`).
+
+```typescript
+const estado = 'Activo';
+const roles = ['Administrador', 'Editor'];
+
+// Uso directo con template literals
+const queryStr = `
+    SELECT * 
+    FROM Usuarios 
+    WHERE Estado = ${db.escape(estado)} 
+      AND Rol IN (${db.escape(roles)})
+`;
+
+const resultados = await db.query(queryStr);
+```
+
 ---
 
 ## 3. Atajos y Métodos Auxiliares de Consulta
