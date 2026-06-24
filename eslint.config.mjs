@@ -12,7 +12,7 @@ export default [
 	{
 		rules: {
 			"@typescript-eslint/no-unused-vars": "warn",
-			"@typescript-eslint/no-explicit-any": false,
+			"@typescript-eslint/no-explicit-any": "off",
 			"no-use-before-define": "off"
 		}
 	}

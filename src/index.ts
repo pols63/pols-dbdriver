@@ -1,4 +1,4 @@
-import { PRecord, PUtilsArray, PUtilsDate, PUtilsNumber, PUtilsObject } from "pols-utils"
+import { PRecord, filter, filterOne, parse, setValue, PUtilsDate } from "pols-utils"
 
 const mssql = (() => {
 	try {
@@ -302,7 +302,7 @@ export class PDBDriver {
 				const keys = Object.keys(row)
 				for (const key of keys) {
 					if (key.match(/\./)) {
-						PUtilsObject.setValue(row as PRecord, key, row[key])
+						setValue(row as PRecord, key, row[key])
 						delete row[key]
 					}
 				}
@@ -515,7 +515,7 @@ export class PDBDriver {
 	}
 
 	async count(params: PSelectParams) {
-		return PUtilsNumber.parse((await this.queryOne(this.makeCountCommand(params)))?.Count)
+		return parse((await this.queryOne(this.makeCountCommand(params)))?.Count)
 	}
 
 	async select<T = PTableRow>(params: PSelectParams): Promise<PQueryResults<T>> {
@@ -662,15 +662,15 @@ export class PDBDriver {
 			}
 
 			/* Valida la propiedad length */
-			if (fieldDefinition.type == PFieldTypes.varchar && (!PUtilsNumber.isInteger(fieldDefinition.length) || fieldDefinition.length <= 0)) {
+			if (fieldDefinition.type == PFieldTypes.varchar && (!Number.isInteger(fieldDefinition.length) || fieldDefinition.length <= 0)) {
 				throw new Error(`Para la definición del campo '${field}', la propiedad 'length' debe ser un número entero positivo mayor a cero`)
 			}
 
 			if (fieldDefinition.type == PFieldTypes.decimal || fieldDefinition.type == PFieldTypes.numeric) {
 				if (
-					!PUtilsNumber.isInteger(fieldDefinition.length[0])
+					!Number.isInteger(fieldDefinition.length[0])
 					|| fieldDefinition.length[0] <= 0
-					|| !PUtilsNumber.isInteger(fieldDefinition.length[1])
+					|| !Number.isInteger(fieldDefinition.length[1])
 					|| fieldDefinition.length[1] <= 0
 				) {
 					throw new Error(`Para la definición del campo '${field}', la propiedad 'length' debe ser un array de números enteros positivos`)
@@ -684,7 +684,7 @@ export class PDBDriver {
 					case PFieldTypes.smallint:
 					case PFieldTypes.bigint:
 					case PFieldTypes.int:
-						if (typeof fieldDefinition.default != 'number' || !PUtilsNumber.isInteger(fieldDefinition.default)) throw new Error(errorMessageForType)
+						if (typeof fieldDefinition.default != 'number' || !Number.isInteger(fieldDefinition.default)) throw new Error(errorMessageForType)
 						break
 					case PFieldTypes.float:
 					case PFieldTypes.double:
@@ -730,7 +730,7 @@ export class PDBDriver {
 				const fieldDefinition: PFieldDefinition = fields[field] as PFieldDefinition
 
 				/* Verifica si el campo ya existe */
-				const currentField = PUtilsArray.filterOne(currentFields.rows, (specification: PTableRow) => (specification.name as string).toLowerCase() == field.toLowerCase())
+				const currentField = filterOne(currentFields.rows, (specification: PTableRow) => (specification.name as string).toLowerCase() == field.toLowerCase())
 
 				if (!currentField) {
 					/* Si la columna no existe, intentará crearla */
@@ -882,7 +882,7 @@ export class PDBDriver {
 			if (fieldDefinition.foreignKey) {
 				/* Validación del foreignKey */
 				const foreignKey = fieldDefinition.foreignKey
-				const referentialConstraint = PUtilsArray.filterOne(referentialConstraints.rows, { table_name: table, column_name: field, reference_table: foreignKey.table, reference_column: foreignKey.field })
+				const referentialConstraint = filterOne(referentialConstraints.rows, { table_name: table, column_name: field, reference_table: foreignKey.table, reference_column: foreignKey.field })
 				/* Si se ha definido una llave foránea, se crea */
 				if (!referentialConstraint) {
 					try {
@@ -893,7 +893,7 @@ export class PDBDriver {
 				}
 			} else {
 				/* Si no se ha definido una llave foránea, se verifica si existe una que amarre al mismo campo con la misma tabla y se elimina */
-				const referentialConstraint = PUtilsArray.filter(referentialConstraints.rows, { column_name: field, table_name: table })
+				const referentialConstraint = filter(referentialConstraints.rows, { column_name: field, table_name: table })
 				if (referentialConstraint) {
 					for (const rc of referentialConstraint) {
 						try {

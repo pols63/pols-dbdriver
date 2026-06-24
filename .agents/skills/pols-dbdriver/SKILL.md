@@ -54,7 +54,7 @@ async function main() {
 ## 2. Ejecución de Consultas (Queries)
 
 ### Parámetros en Consultas
-Las consultas admiten binding automático de parámetros usando el prefijo `$`. La librería se encarga de escapar y sanitizar los valores automáticamente.
+Las consultas admiten binding automático de parámetros usando el prefijo `@`. La librería se encarga de escapar y sanitizar los valores automáticamente.
 
 - **`query(command, parameters, groupColumns)`**: Ejecuta una consulta y devuelve un objeto [`PQueryResults`](file:///d:/Coding/pols-dbdriver/src/index.ts#L80) que contiene las filas, cantidad de registros, la sentencia final y la estructura de columnas.
 - **`queryOne(command, parameters, groupColumns)`**: Devuelve la primera fila del resultado o `null` si está vacío.
