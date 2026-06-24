@@ -1,12 +1,5 @@
 import { PRecord, filter, filterOne, parse, setValue, PUtilsDate } from "pols-utils"
-
-const mssql = (() => {
-	try {
-		return require('mssql')
-	} catch {
-		return null
-	}
-})()
+import mssql from 'mssql'
 
 export enum PDriverNames {
 	sqlsrv2008 = 'sqlsrv2008',
@@ -252,7 +245,7 @@ export class PDBDriver {
 		}
 	}
 
-	private async run<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, resultsAreExpected = true) {
+	private async run<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}) {
 		if (!this._connected) throw new Error(`El driver no está conectado con el servidor`)
 
 		let request: any
@@ -290,11 +283,11 @@ export class PDBDriver {
 	}
 
 	async exec(command: string) {
-		await this.run(command, {}, false)
+		await this.run(command, {})
 	}
 
 	async query<T = PTableRow>(command: string, parameters: Record<string, unknown> = {}, groupColumns?: boolean): Promise<PQueryResults<T>> {
-		const results = await this.run<T>(command, parameters, true)
+		const results = await this.run<T>(command, parameters)
 
 		/* Agrupación de columnas */
 		if (results?.length && groupColumns) {
@@ -616,8 +609,6 @@ export class PDBDriver {
 	}
 
 	async buildTable({ schema, table, comments, fields }: PBuildTableParams) {
-		const config = this.config
-
 		/* Obtiene información del schema, si no existe, lo crea crea */
 		if (schema) {
 			const schemaInformation = await this.queryOne(/*sql*/`
@@ -855,8 +846,6 @@ export class PDBDriver {
 	}
 
 	async buildForeignKeys({ schema, table, fields }: PBuildForeignKeysParams) {
-		const config = this.config
-
 		/* Obtiene las limitaciones referenciales */
 		const referentialConstraints = await this.query(/*sql*/`
 			select
