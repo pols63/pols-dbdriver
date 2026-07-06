@@ -261,9 +261,10 @@ export class PDBDriver {
 				const value = parameters[parameterName]
 				if (
 					value instanceof Array ||
-					(typeof value == 'object' && value !== null && 'expression' in value)
+					(typeof value == 'object' && value !== null && 'expression' in value) ||
+					(typeof value == 'object' && value !== null && 'engine' in (value as object) && (value as any).engine instanceof Date)
 				) {
-					// Interpolación directa para arrays o expresiones SQL
+					// Interpolación directa para arrays, expresiones SQL o PDate
 					command = command.replace(new RegExp(`@${parameterName}(?![a-zA-Z0-9_])`, 'g'), this.escape(value))
 				} else {
 					// Parametrización nativa para tipos primitivos
