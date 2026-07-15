@@ -948,17 +948,39 @@ export class PDBDriver {
 
 	async buildProcedureOrFunction({ schema, name, type, definition }: PBuildProcedureOrFunctionParams): Promise<void> {
 		const currentSchema = schema ?? 'dbo'
+		const dropType = type === PDBRoutineTypes.procedure ? 'PROCEDURE' : 'FUNCTION'
 
-		// 1. Verifica si ya existe
-		const exists = await this.getProcedureOrFunction(name, currentSchema)
+		if (this.config.driver === PDriverNames.sqlsrv2008) {
+			/* CREATE OR ALTER no existe antes de SQL Server 2016 SP1, así que en 2008 se mantiene
+			   el DROP + CREATE, pero protegido con una transacción: si el CREATE falla, el ROLLBACK
+			   deshace también el DROP (el DDL es transaccional en SQL Server) y el objeto original
+			   queda intacto en vez de perderse. */
+			const exists = await this.getProcedureOrFunction(name, currentSchema)
 
-		if (exists) {
-			// 2. Si existe, lo elimina primero según su tipo
-			const dropType = type === PDBRoutineTypes.procedure ? 'PROCEDURE' : 'FUNCTION'
-			await this.exec(`DROP ${dropType} [${currentSchema}].[${name}]`)
+			await this.beginTransaction()
+			try {
+				if (exists) {
+					await this.exec(`DROP ${dropType} [${currentSchema}].[${name}]`)
+				}
+				await this.exec(definition)
+				await this.commitTransaction()
+			} catch (err) {
+				await this.rollbackTransaction()
+				throw err
+			}
+		} else {
+			/* Desde SQL Server 2016 SP1, CREATE OR ALTER reemplaza al DROP + CREATE: es una sola
+			   sentencia atómica, así que si la nueva definición falla, el objeto existente no se
+			   toca. Se reescribe el CREATE [OR ALTER] PROC/FUNCTION recibido para forzar OR ALTER. */
+			const routineKeyword = type === PDBRoutineTypes.procedure ? 'PROC(?:EDURE)?' : 'FUNCTION'
+			const createRegex = new RegExp(`\\bCREATE\\s+(?:OR\\s+ALTER\\s+)?(${routineKeyword})\\b`, 'i')
+
+			if (!createRegex.test(definition)) {
+				throw new Error(`La definición de '${currentSchema}.${name}' debe iniciar con CREATE ${dropType}`)
+			}
+
+			const patchedDefinition = definition.replace(createRegex, (_match, keyword) => `CREATE OR ALTER ${keyword}`)
+			await this.exec(patchedDefinition)
 		}
-
-		// 3. Ejecuta la definición provista para crearlo
-		await this.exec(definition)
 	}
 }
